@@ -46,7 +46,7 @@ public abstract class CompressExtension extends AbstractExtension
     protected static final byte[] TAIL_BYTES = new byte[]{0x00, 0x00, (byte)0xFF, (byte)0xFF};
     protected static final ByteBuffer TAIL_BYTES_BUF = ByteBuffer.wrap(TAIL_BYTES);
     private static final Logger LOG = Log.getLogger(CompressExtension.class);
-
+    
     /**
      * Never drop tail bytes 0000FFFF, from any frame type
      */
@@ -92,6 +92,7 @@ public abstract class CompressExtension extends AbstractExtension
     private InflaterPool inflaterPool;
     private Deflater deflaterImpl;
     private Inflater inflaterImpl;
+    protected ByteAccumulator accumulator;
     protected AtomicInteger decompressCount = new AtomicInteger(0);
     private int tailDrop = TAIL_DROP_NEVER;
     private int rsvUse = RSV_USE_ALWAYS;
@@ -176,7 +177,29 @@ public abstract class CompressExtension extends AbstractExtension
     protected ByteAccumulator newByteAccumulator()
     {
         int maxSize = Math.max(getPolicy().getMaxTextMessageSize(), getPolicy().getMaxBinaryMessageSize());
-        return new ByteAccumulator(maxSize);
+        if (accumulator == null || accumulator.getMaxSize() != maxSize)
+        {
+            accumulator = new ByteAccumulator(maxSize, getBufferPool());
+        }
+        return accumulator;
+    }
+
+    int copyChunk(Inflater inflater, ByteAccumulator accumulator, ByteBuffer buf) throws DataFormatException 
+    {
+        int position = 0;
+        int capacity = buf.capacity();
+        while (position < capacity)
+        {
+            int read = inflater.inflate(buf.array(), position, capacity - position);
+            if (read <= 0)
+            {
+                accumulator.copyChunk((ByteBuffer)buf.position(position).flip());
+                return read;
+            }
+            position += read;
+        }
+        accumulator.copyChunk((ByteBuffer)buf.position(position).flip());
+        return position;
     }
 
     protected void decompress(ByteAccumulator accumulator, ByteBuffer buf) throws DataFormatException
@@ -185,10 +208,10 @@ public abstract class CompressExtension extends AbstractExtension
         {
             return;
         }
-        byte[] output = new byte[DECOMPRESS_BUF_SIZE];
+        
 
         Inflater inflater = getInflater();
-
+        
         while (buf.hasRemaining() && inflater.needsInput())
         {
             if (!supplyInput(inflater, buf))
@@ -198,21 +221,13 @@ public abstract class CompressExtension extends AbstractExtension
                 return;
             }
 
-            int read;
-            while ((read = inflater.inflate(output)) >= 0)
+            while (true)
             {
-                if (read == 0)
+                ByteBuffer output = accumulator.newByteBuffer(DECOMPRESS_BUF_SIZE);
+                int read = copyChunk(inflater, accumulator, output);
+                if (read <= 0)
                 {
-                    if (LOG.isDebugEnabled())
-                        LOG.debug("Decompress: read 0 {}", toDetail(inflater));
                     break;
-                }
-                else
-                {
-                    // do something with output
-                    if (LOG.isDebugEnabled())
-                        LOG.debug("Decompressed {} bytes: {}", read, toDetail(inflater));
-                    accumulator.copyChunk(output, 0, read);
                 }
             }
         }
