@@ -73,5 +73,10 @@ public class DeflateFrameExtension extends CompressExtension
         {
             throw new BadPayloadException(e);
         }
+        finally
+        {
+            if (accumulator != null)
+                accumulator.recycle();
+        }
     }
 }

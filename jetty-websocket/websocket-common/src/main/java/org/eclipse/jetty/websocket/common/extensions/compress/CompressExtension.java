@@ -184,21 +184,29 @@ public abstract class CompressExtension extends AbstractExtension
         return accumulator;
     }
 
-    int copyChunk(Inflater inflater, ByteAccumulator accumulator, ByteBuffer buf) throws DataFormatException 
+    int copyChunk(Inflater inflater, ByteAccumulator accumulator) throws DataFormatException 
     {
-        int position = 0;
-        int capacity = buf.capacity();
-        while (position < capacity)
+        ByteBuffer buf = accumulator.newByteBuffer(DECOMPRESS_BUF_SIZE);
+        while (buf.hasRemaining())
         {
-            int read = inflater.inflate(buf.array(), position, capacity - position);
-            if (read <= 0)
+            try 
             {
-                accumulator.copyChunk((ByteBuffer)buf.position(position).flip());
-                return read;
+                int read = inflater.inflate(buf.array(), buf.position(), buf.remaining());
+                if (read <= 0)
+                {
+                    accumulator.copyChunk((ByteBuffer)buf.flip());
+                    return read;
+                }
+                buf.position(buf.position() + read);
             }
-            position += read;
+            catch (DataFormatException e)
+            {
+                accumulator.release(buf);
+                throw e;
+            }
         }
-        accumulator.copyChunk((ByteBuffer)buf.position(position).flip());
+        int position = buf.position();
+        accumulator.copyChunk((ByteBuffer)buf.flip());
         return position;
     }
 
@@ -223,9 +231,7 @@ public abstract class CompressExtension extends AbstractExtension
 
             while (true)
             {
-                ByteBuffer output = accumulator.newByteBuffer(DECOMPRESS_BUF_SIZE);
-                int read = copyChunk(inflater, accumulator, output);
-                if (read <= 0)
+                if (copyChunk(inflater, accumulator) <= 0)
                 {
                     break;
                 }

@@ -89,11 +89,16 @@ public class PerMessageDeflateExtension extends CompressExtension
             }
 
             forwardIncoming(frame, accumulator);
-            accumulator.recycle();
+            
         }
         catch (DataFormatException e)
         {
             throw new BadPayloadException(e);
+        }
+        finally
+        {
+            if (accumulator != null)
+                accumulator.recycle();
         }
 
         if (frame.isFin())

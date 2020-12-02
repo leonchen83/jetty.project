@@ -44,25 +44,25 @@ public class ByteAccumulator
         this.bufferPool = bufferPool;
     }
     
-    public void copyChunk(ByteBuffer buffer)
+    public void copyChunk(ByteBuffer buf)
     {
-        int length = buffer.remaining();
+        int length = buf.remaining();
         if (this.length + length > maxSize)
         {
+            release(buf);
             String err = String.format("Resulting message size [%,d] is too large for configured max of [%,d]", this.length + length, maxSize);
             throw new MessageTooLargeException(err);
         }
         
-        if (buffer.hasRemaining())
+        if (buf.hasRemaining())
         {
-            chunks.add(buffer);
+            chunks.add(buf);
             this.length += length;
         }
         else
         {
             // release 0 length buffer directly
-            if (bufferPool != null)
-                bufferPool.release(buffer);
+            release(buf);
         }
     }
 
@@ -116,15 +116,19 @@ public class ByteAccumulator
     {
         length = 0;
         
-        if (bufferPool == null)
-        {
-            return;
-        }
         for (ByteBuffer chunk : chunks)
-        {
-            bufferPool.release(chunk);
+        { 
+            release(chunk);
         }
         
         chunks.clear();
+    }
+    
+    void release(ByteBuffer buffer)
+    {
+        if (bufferPool != null)
+        {
+            bufferPool.release(buffer);
+        }
     }
 }
